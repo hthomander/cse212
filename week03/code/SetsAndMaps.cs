@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Globalization;
 
 public static class SetsAndMaps
 {
@@ -21,8 +22,18 @@ public static class SetsAndMaps
     /// <param name="words">An array of 2-character words (lowercase, no duplicates)</param>
     public static string[] FindPairs(string[] words)
     {
-        // TODO Problem 1 - ADD YOUR CODE HERE
-        return [];
+        var wordSet = new HashSet<string>(words);
+        var pairs = new List<string>();
+        foreach (var word in wordSet)
+        {
+            var reverse = new string([word[1], word[0]]);
+            if (word != reverse && string.CompareOrdinal(word, reverse) < 0 && wordSet.Contains(reverse))
+            {
+                pairs.Add($"{word} & {reverse}");
+            }
+        }
+
+        return pairs.ToArray();
     }
 
     /// <summary>
@@ -42,7 +53,13 @@ public static class SetsAndMaps
         foreach (var line in File.ReadLines(filename))
         {
             var fields = line.Split(",");
-            // TODO Problem 2 - ADD YOUR CODE HERE
+            if (fields.Length < 4)
+            {
+                throw new FormatException("Each census row must contain a degree in the fourth column.");
+            }
+
+            var degree = fields[3];
+            degrees[degree] = degrees.GetValueOrDefault(degree) + 1;
         }
 
         return degrees;
@@ -66,8 +83,38 @@ public static class SetsAndMaps
     /// </summary>
     public static bool IsAnagram(string word1, string word2)
     {
-        // TODO Problem 3 - ADD YOUR CODE HERE
-        return false;
+        if (string.Equals(word1, word2, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var counts = new Dictionary<char, int>();
+        foreach (var character in word1)
+        {
+            if (!char.IsWhiteSpace(character))
+            {
+                var normalized = char.ToUpperInvariant(character);
+                counts[normalized] = counts.GetValueOrDefault(normalized) + 1;
+            }
+        }
+
+        foreach (var character in word2)
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                continue;
+            }
+
+            var normalized = char.ToUpperInvariant(character);
+            if (!counts.TryGetValue(normalized, out var count) || count == 0)
+            {
+                return false;
+            }
+
+            counts[normalized] = count - 1;
+        }
+
+        return counts.Values.All(count => count == 0);
     }
 
     /// <summary>
@@ -88,19 +135,25 @@ public static class SetsAndMaps
     {
         const string uri = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson";
         using var client = new HttpClient();
-        using var getRequestMessage = new HttpRequestMessage(HttpMethod.Get, uri);
-        using var jsonStream = client.Send(getRequestMessage).Content.ReadAsStream();
-        using var reader = new StreamReader(jsonStream);
-        var json = reader.ReadToEnd();
+        using var response = client.GetAsync(uri).GetAwaiter().GetResult();
+        response.EnsureSuccessStatusCode();
+        var json = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
-        var featureCollection = JsonSerializer.Deserialize<FeatureCollection>(json, options);
+        var featureCollection = JsonSerializer.Deserialize<FeatureCollection>(json, options)
+            ?? throw new InvalidOperationException("The earthquake feed returned an empty JSON document.");
+        if (featureCollection.Features is null)
+        {
+            throw new InvalidOperationException("The earthquake feed did not contain a features array.");
+        }
 
-        // TODO Problem 5:
-        // 1. Add code in FeatureCollection.cs to describe the JSON using classes and properties 
-        // on those classes so that the call to Deserialize above works properly.
-        // 2. Add code below to create a string out each place a earthquake has happened today and its magitude.
-        // 3. Return an array of these string descriptions.
-        return [];
+        return featureCollection.Features
+            .Select(feature =>
+            {
+                var place = feature.Properties?.Place ?? "Unknown location";
+                var magnitude = feature.Properties?.Mag?.ToString(CultureInfo.InvariantCulture) ?? "unknown";
+                return $"{place} - Mag {magnitude}";
+            })
+            .ToArray();
     }
 }
